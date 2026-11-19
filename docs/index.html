@@ -15,11 +15,9 @@
   </div></header>
   <main class="shell">
     <section id="login-panel" class="card auth">
-      <h1>登入用電紀錄</h1>
+      <h1>登入家庭用電紀錄</h1>
       <form id="login">
-        <label>電子郵件<input name="email" required type="email" autocomplete="username"></label>
-        <label>密碼<input name="password" required type="password" autocomplete="current-password"></label>
-        <button class="primary">登入</button>
+        <button class="primary" disabled>使用 Google 登入</button>
       </form>
       <p id="login-message" role="status"></p>
       <button id="offline" class="quiet" hidden>使用離線模式</button>
@@ -56,7 +54,7 @@
             <div class="actions"><button id="save-reading" class="primary">儲存讀數</button><button type="button" id="cancel-edit" class="quiet" hidden>取消編輯</button></div>
             <p id="save-message" role="status"></p>
           </form>
-          <details><summary>匯入歷史紀錄</summary><form id="import">
+          <details id="import-panel"><summary>匯入歷史紀錄</summary><form id="import">
             <label>選擇歷史 CSV<input name="file" type="file" accept=".csv,text/csv" required></label>
             <p class="hint">相同抄表時間的既有紀錄會保留。</p>
             <button class="quiet">匯入 CSV</button>
@@ -67,7 +65,7 @@
       <section class="card history">
         <div class="section-heading"><h2>抄表明細</h2><label>顯示範圍<select id="history-filter"><option value="latest">最近 30 筆</option><option value="anomaly">讀數下降</option><option value="all">全部紀錄</option></select></label></div>
         <p class="hint">括號內為與該樓層上次有效抄表的差值。讀數下降的區間不計入趨勢。</p>
-        <div class="table-wrap"><table><thead><tr><th scope="col">抄表時間</th><th scope="col">1 樓</th><th scope="col">2 樓</th><th scope="col">3 樓</th><th scope="col">操作</th></tr></thead><tbody id="history"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">抄表時間</th><th scope="col">1 樓</th><th scope="col">2 樓</th><th scope="col">3 樓</th><th id="history-actions" scope="col">操作</th></tr></thead><tbody id="history"></tbody></table></div>
       </section>
       <p id="page-error" role="alert"></p>
     </div>

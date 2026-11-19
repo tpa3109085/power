@@ -8,7 +8,8 @@ const display = cents => fmt.format(cents / 100);
 const reading = $('reading');
 const field = name => reading.elements.namedItem(name);
 const storageKey = 'floor-meter.offline.v1';
-let client, user, offline = false, rows = [], period = 'day', editing;
+let client, access, offline = false, rows = [], period = 'day', editing;
+const canManage = () => offline || access?.role === 'owner';
 
 function showMessage(id, value, error = false) {
   $(id).textContent = value;
@@ -24,7 +25,10 @@ function localRows() {
   return JSON.parse(localStorage.getItem(storageKey) ?? '[]');
 }
 function readError(error) {
-  if (error.code === '23505') return '此時間已有抄表紀錄，可在明細中編輯。';
+  if (error.code === '23505') return canManage()
+    ? '此時間已有抄表紀錄，可在明細中編輯。'
+    : '此時間已有抄表紀錄。如需更正，請聯絡管理者。';
+  if (error.code === '42501') return '這個帳號沒有執行此操作的權限。';
   return error.message || '無法完成操作，請稍後再試。';
 }
 async function fetchRows() {
@@ -32,7 +36,7 @@ async function fetchRows() {
   const result = [];
   let cursor;
   while (true) {
-    let query = client.from('meter_readings').select('recorded_at,floor1,floor2,floor3')
+    let query = client.from('meter_readings').select('recorded_at,floor1,floor2,floor3').eq('user_id',access.book_id)
       .order('recorded_at',{ascending:true}).limit(500);
     if (cursor) query = query.gt('recorded_at',cursor);
     const {data,error} = await query;
@@ -101,10 +105,11 @@ function renderHistory() {
   if (filter === 'latest') list = list.slice(0,30);
   if (filter === 'anomaly') list = list.filter(row => floors.some(floor => row.intervals[floor]?.cents < 0));
   $('history').replaceChildren();
+  $('history-actions').hidden = !canManage();
   if (!list.length) {
     const tr = element('tr');
     const td = element('td','沒有符合條件的紀錄。');
-    td.colSpan = 5;
+    td.colSpan = canManage() ? 5 : 4;
     tr.append(td);
     $('history').append(tr);
   }
@@ -120,16 +125,19 @@ function renderHistory() {
       }
       tr.append(cell);
     }
-    const action = element('td');
-    const button = element('button','編輯','quiet');
-    button.type = 'button';
-    button.addEventListener('click',() => edit(row));
-    action.append(button);
-    tr.append(action);
+    if (canManage()) {
+      const action = element('td');
+      const button = element('button','編輯','quiet');
+      button.type = 'button';
+      button.addEventListener('click',() => edit(row));
+      action.append(button);
+      tr.append(action);
+    }
     $('history').append(tr);
   }
 }
 function edit(row) {
+  if (row && !canManage()) return;
   editing = row?.recorded_at;
   field('recorded_at').value = row?.local ?? taipei().slice(0,16);
   field('recorded_at').readOnly = !!row;
@@ -156,7 +164,8 @@ function showDashboard() {
   $('login-panel').hidden = true;
   $('dashboard').hidden = false;
   $('logout').hidden = false;
-  $('mode').textContent = offline ? '離線模式 · 只存於此瀏覽器' : '雲端同步';
+  $('mode').textContent = offline ? '離線模式 · 只存於此瀏覽器' : '家庭用電紀錄';
+  $('import-panel').hidden = !canManage();
   $('logout').textContent = offline ? '離開' : '登出';
   $('month').value = taipei().slice(0,7);
   edit();
@@ -183,27 +192,31 @@ async function submit(event, message, action) {
 
 $('login').addEventListener('submit',event => submit(event,'login-message',async () => {
   if (!client) throw Error('連線尚未完成。');
-  const form = new FormData($('login'));
-  const {data,error} = await client.auth.signInWithPassword({email:form.get('email'),password:form.get('password')});
+  const callback = new URL('./',window.location.href);
+  const {error} = await client.auth.signInWithOAuth({
+    provider:'google',
+    options:{redirectTo:callback.href,queryParams:{prompt:'select_account'}}
+  });
   if (error) throw error;
-  user = data.user;
-  $('login').reset();
-  await activate();
 }));
 $('offline').addEventListener('click',async () => { offline = true; await activate(); });
 $('logout').addEventListener('click',async () => {
   if (!offline && client) {
     const {error} = await client.auth.signOut();
-    if (error) { showMessage('page-error',readError(error),true); return; }
+    if (error) {
+      showMessage($('dashboard').hidden ? 'login-message' : 'page-error',readError(error),true);
+      return;
+    }
   }
   offline = false;
-  user = undefined;
+  access = undefined;
   rows = [];
   render();
   $('dashboard').hidden = true;
   $('logout').hidden = true;
   $('mode').textContent = '';
   $('login-panel').hidden = false;
+  showMessage('login-message','');
 });
 reading.addEventListener('input',updateEstimate);
 $('cancel-edit').addEventListener('click',() => edit());
@@ -216,11 +229,16 @@ reading.addEventListener('submit',event => submit(event,'save-message',async () 
     if (index === -1) data.push(row);
     else data[index] = row;
     localStorage.setItem(storageKey,JSON.stringify(data));
-  } else {
-    const table = client.from('meter_readings');
-    const {data,error} = await (editing ? table.update(row).eq('recorded_at',editing).eq('user_id',user.id)
-      : table.insert({...row,user_id:user.id})).select('recorded_at').single();
+  } else if (editing) {
+    if (!canManage()) throw Error('只有管理者可以編輯既有紀錄。');
+    const {data,error} = await client.from('meter_readings').update(row)
+      .eq('recorded_at',editing).eq('user_id',access.book_id).select('recorded_at').single();
     if (error || !data) throw error ?? Error('找不到該筆抄表紀錄。');
+  } else {
+    const {error} = await client.rpc('add_meter_reading',{
+      reading_time:row.recorded_at,reading_floor1:row.floor1,reading_floor2:row.floor2,reading_floor3:row.floor3
+    });
+    if (error) throw error;
   }
   edit();
   $('month').value = taipei(row.recorded_at).slice(0,7);
@@ -228,6 +246,7 @@ reading.addEventListener('submit',event => submit(event,'save-message',async () 
   try { await refresh(); } catch { showMessage('page-error','已儲存，重新整理頁面可載入最新紀錄。',true); }
 }));
 $('import').addEventListener('submit',event => submit(event,'import-message',async () => {
+  if (!canManage()) throw Error('只有管理者可以匯入歷史紀錄。');
   const file = $('import').elements.namedItem('file').files[0];
   const imported = parseCSV(await file.text());
   let count;
@@ -239,7 +258,7 @@ $('import').addEventListener('submit',event => submit(event,'import-message',asy
     count = data.size - prior;
   } else {
     const {count:inserted,error} = await client.from('meter_readings').upsert(
-      imported.map(row => ({...row,user_id:user.id})),
+      imported.map(row => ({...row,user_id:access.book_id})),
       {onConflict:'user_id,recorded_at',ignoreDuplicates:true,count:'exact'});
     if (error) throw error;
     count = inserted;
@@ -270,9 +289,18 @@ async function start() {
   }
   const {createClient} = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm');
   client = createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+  $('login').querySelector('button').disabled = false;
   const {data,error} = await client.auth.getSession();
   if (error) throw error;
-  user = data.session?.user;
-  if (user) await activate();
+  if (!data.session) return;
+  $('logout').hidden = false;
+  const result = await client.rpc('meter_book_access');
+  if (result.error) throw result.error;
+  access = result.data;
+  if (!access?.book_id) {
+    showMessage('login-message','這個帳號尚未取得家庭電量紀錄的權限。請聯絡管理者或切換 Google 帳號。',true);
+    return;
+  }
+  await activate();
 }
 start().catch(error => showMessage('login-message','連線失敗：' + readError(error),true));
