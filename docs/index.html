@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>樓層用電紀錄</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <header class="top"><div class="shell bar">
+    <a class="brand" href="./" aria-label="樓層用電紀錄首頁"><span aria-hidden="true">ϟ</span> 樓層用電紀錄</a>
+    <div class="account"><span id="mode"></span><button id="logout" class="quiet" hidden>登出</button></div>
+  </div></header>
+  <main class="shell">
+    <section id="login-panel" class="card auth">
+      <h1>登入用電紀錄</h1>
+      <form id="login">
+        <label>電子郵件<input name="email" required type="email" autocomplete="username"></label>
+        <label>密碼<input name="password" required type="password" autocomplete="current-password"></label>
+        <button class="primary">登入</button>
+      </form>
+      <p id="login-message" role="status"></p>
+      <button id="offline" class="quiet" hidden>使用離線模式</button>
+    </section>
+    <div id="dashboard" hidden>
+      <div class="heading"><div><h1>用電總覽</h1><p id="coverage">讀取抄表紀錄中</p></div></div>
+      <section class="metrics" id="metrics" aria-label="各樓層最新讀數"></section>
+      <div class="workspace">
+        <section class="card trend">
+          <div class="section-heading"><h2>歷史用電趨勢</h2><div id="periods" class="segments" aria-label="趨勢週期">
+            <button type="button" data-period="day" aria-pressed="true">日</button>
+            <button type="button" data-period="month" aria-pressed="false">月</button>
+            <button type="button" data-period="year" aria-pressed="false">年</button>
+          </div></div>
+          <div class="filters">
+            <label>樓層<select id="floor"><option value="total">全樓合計</option><option value="floor1">1 樓</option><option value="floor2">2 樓</option><option value="floor3">3 樓</option></select></label>
+            <label id="month-field">月份<input id="month" type="month"></label>
+            <label id="year-field" hidden>年份<select id="year"></select></label>
+          </div>
+          <div class="summary"><strong id="sum">—</strong><span>度</span><small id="summary-label"></small></div>
+          <div id="chart" class="chart"></div>
+          <p id="chart-note" class="hint"></p>
+        </section>
+        <section class="card entry">
+          <h2 id="entry-title">新增抄表</h2>
+          <form id="reading">
+            <label>抄表日期與時間（臺灣）<input name="recorded_at" type="datetime-local" required></label>
+            <div class="entry-values">
+              <label>1 樓<input name="floor1" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal"></label>
+              <label>2 樓<input name="floor2" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal"></label>
+              <label>3 樓<input name="floor3" type="number" min="0" max="9999999999.99" step="0.01" inputmode="decimal"></label>
+            </div>
+            <p id="estimate" class="hint">填寫至少一個樓層的累計電表讀數。</p>
+            <div class="actions"><button id="save-reading" class="primary">儲存讀數</button><button type="button" id="cancel-edit" class="quiet" hidden>取消編輯</button></div>
+            <p id="save-message" role="status"></p>
+          </form>
+          <details><summary>匯入歷史紀錄</summary><form id="import">
+            <label>選擇歷史 CSV<input name="file" type="file" accept=".csv,text/csv" required></label>
+            <p class="hint">相同抄表時間的既有紀錄會保留。</p>
+            <button class="quiet">匯入 CSV</button>
+            <p id="import-message" role="status"></p>
+          </form></details>
+        </section>
+      </div>
+      <section class="card history">
+        <div class="section-heading"><h2>抄表明細</h2><label>顯示範圍<select id="history-filter"><option value="latest">最近 30 筆</option><option value="anomaly">讀數下降</option><option value="all">全部紀錄</option></select></label></div>
+        <p class="hint">括號內為與該樓層上次有效抄表的差值。讀數下降的區間不計入趨勢。</p>
+        <div class="table-wrap"><table><thead><tr><th scope="col">抄表時間</th><th scope="col">1 樓</th><th scope="col">2 樓</th><th scope="col">3 樓</th><th scope="col">操作</th></tr></thead><tbody id="history"></tbody></table></div>
+      </section>
+      <p id="page-error" role="alert"></p>
+    </div>
+  </main>
+</body>
+</html>
