@@ -1,10 +1,6 @@
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.mjs';
 import { floors, taipei, normalize, parseCSV, calculate, summarize } from './meter.mjs';
 
-const colors = ['#e8f3ed','#c6e4d4','#88c9b0','#479f8c','#207777','#164a62'];
-const numberFormat = new Intl.NumberFormat('zh-TW',{maximumFractionDigits:2});
-const format = value => numberFormat.format(value / 100);
-
 function periodKeys(period, filter, available) {
   if (period === 'day' && /^\d{4}-\d{2}$/.test(filter)) {
     const [year,month] = filter.split('-').map(Number);
@@ -21,103 +17,78 @@ function periodKeys(period, filter, available) {
   return available;
 }
 
-function clip(points, threshold, above) {
-  const clipped = [];
-  let from = points.at(-1);
-  for (const to of points) {
-    const inside = point => above ? point[2] >= threshold : point[2] < threshold;
-    if (inside(from) !== inside(to)) {
-      const ratio = (threshold - from[2]) / (to[2] - from[2]);
-      clipped.push([from[0] + ratio * (to[0] - from[0]),from[1] + ratio * (to[1] - from[1]),threshold]);
-    }
-    if (inside(to)) clipped.push(to);
-    from = to;
-  }
-  return clipped;
-}
-
-function band(ctx, triangle, lower, upper, color) {
-  const low = Number.isFinite(lower) ? clip(triangle,lower,true) : triangle;
-  const polygon = low.length && Number.isFinite(upper) ? clip(low,upper,false) : low;
-  if (polygon.length < 3) return;
-  ctx.beginPath();
-  ctx.moveTo(polygon[0][0],polygon[0][1]);
-  polygon.slice(1).forEach(([x,y]) => ctx.lineTo(x,y));
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-}
+const tones = { '1 樓':'#146653', '2 樓':'#366caf', '3 樓':'#a35527' };
+const numberFormat = new Intl.NumberFormat('zh-TW',{maximumFractionDigits:2});
+const format = cents => numberFormat.format(cents / 100);
 
 function drawTrend(canvas, keys, series, period) {
   const ctx = canvas.getContext('2d');
   const values = series.flatMap(({data}) => [...data.values()]);
-  if (!ctx || !keys.length || !values.length) return;
+  if (!ctx || !keys.length || !values.length) return [];
   const width = 680, height = 240;
   canvas.width = width * 2;
   canvas.height = height * 2;
   ctx.scale(2,2);
+
   const left = 63, right = 654, top = 27, bottom = 200;
-  const x = index => keys.length === 1 ? (left + right) / 2 : left + index * (right - left) / (keys.length - 1);
-  const max = Math.max(100,...values);
-  const magnitude = 10 ** Math.floor(Math.log10(max / colors.length));
-  const step = Math.ceil(max / colors.length / magnitude) * magnitude;
-  const upper = step * colors.length;
+  const x = i => keys.length === 1 ? (left+right)/2 : left + i*(right-left)/(keys.length-1);
+  const target = Math.max(25,...values)/4;
+  const divisor = 10 ** Math.floor(Math.log10(target));
+  const unit = [1,2,2.5,5,10].find(n => n * divisor >= target) * divisor;
+  const upper = unit*4;
+  const y = value => bottom - value*(bottom-top)/upper;
+
   ctx.fillStyle = '#f5f8f6';
   ctx.fillRect(left,top,right-left,bottom-top);
   ctx.font = '13px system-ui';
-  const multiple = series.length > 1;
-  const y = multiple ? (_,i) => top + i * (bottom - top) / (series.length - 1)
-    : value => bottom - value / upper * (bottom-top);
-  const points = series.map(({data},i) => keys.map((key,j) => {
-    const value = data.get(key);
-    return value == null ? null : [x(j),y(value,i),value];
-  }));
-  if (multiple) {
-    for (let i = 1; i < points.length; i++) {
-      for (let j = 1; j < keys.length; j++) {
-        const a=points[i-1][j-1], b=points[i-1][j], c=points[i][j], d=points[i][j-1];
-        if (![a,b,c,d].every(Boolean)) continue;
-        colors.forEach((color,k) => {
-          const lower = k * step, higher = k === colors.length - 1 ? Infinity : lower + step;
-          band(ctx,[a,b,c],lower,higher,color);
-          band(ctx,[a,c,d],lower,higher,color);
-        });
-      }
-    }
-  } else {
-    ctx.strokeStyle = '#17664f';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    let connected = false;
-    for (const point of points[0]) {
-      if (point) ctx[connected ? 'lineTo' : 'moveTo'](point[0],point[1]);
-      connected = !!point;
-    }
-    ctx.stroke();
-  }
   ctx.fillStyle = '#203d35';
+  ctx.strokeStyle = '#d5e2db';
+  ctx.lineWidth = 1;
   ctx.textAlign = 'right';
-  if (multiple) series.forEach(({label},i) => ctx.fillText(label,left-8,y(0,i)+5));
-  else for (let i=0;i<=3;i++) ctx.fillText(format(upper*i/3),left-8,y(upper*i/3)+5);
+  for (let i=0; i<=4; i++) {
+    const level = i*unit, levelY = y(level);
+    ctx.beginPath();
+    ctx.moveTo(left,levelY);
+    ctx.lineTo(right,levelY);
+    ctx.stroke();
+    ctx.fillText(format(level),left-8,levelY+5);
+  }
+  ctx.textAlign = 'left';
+  ctx.fillText('用電（度）',left,16);
   ctx.textAlign = 'center';
   const tick = Math.max(1,Math.ceil(keys.length/7));
   keys.forEach((key,i) => {
     if (i % tick !== 0 && (i !== keys.length-1 || i % tick < tick/2)) return;
-    ctx.fillText(period === 'day' ? key.slice(5).replace('-','/') : period === 'month' ? key.slice(5)+' 月' : key,x(i),226);
+    const label = period === 'day' ? key.slice(5).replace('-','/') : period === 'month' ? key.slice(5)+' 月' : key;
+    ctx.fillText(label,x(i),226);
   });
-  for (const line of points) for (const point of line) {
-    if (!point) continue;
-    ctx.fillStyle = colors[Math.min(colors.length-1,Math.floor(point[2]/step))];
-    ctx.strokeStyle = '#123a37';
-    ctx.lineWidth = 1;
+
+  for (const {label,data} of series) {
+    const color = tones[label] ?? '#146653';
+    const points = keys.map((key,i) => data.has(key) ? [x(i),y(data.get(key))] : null);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2.4;
     ctx.beginPath();
-    ctx.arc(point[0],point[1],multiple ? 3.2 : 3.7,0,2*Math.PI);
-    ctx.fill();
+    let previous;
+    for (const point of points) {
+      if (point && previous) {
+        const middle = (point[0] + previous[0])/2;
+        ctx.bezierCurveTo(middle,previous[1],middle,point[1],point[0],point[1]);
+      } else if (point) {
+        ctx.moveTo(...point);
+      }
+      previous = point;
+    }
     ctx.stroke();
+    for (const point of points) {
+      if (!point) continue;
+      ctx.beginPath();
+      ctx.arc(point[0],point[1],3.1,0,2*Math.PI);
+      ctx.fill();
+    }
   }
-  return multiple ? colors.map((color,i) => ({
-    color,label:i === colors.length-1 ? `${format(i*step)} 以上` : `${format(i*step)}–${format((i+1)*step)}`
-  })) : [];
+  return series.map(({label}) => ({color:tones[label] ?? '#146653',label}));
 }
 
 
@@ -303,7 +274,7 @@ function renderChart() {
 }
 function renderTrend(chart, filter, buckets) {
   const selected = $('floor').value;
-  const selectedFloors = selected === 'total' ? [...floors].reverse() : [selected];
+  const selectedFloors = selected === 'total' ? floors : [selected];
   const series = selectedFloors.map(floor => ({
     label: labels[floor],
     data: selected === 'total' ? summarize(rows,period,filter,floor).buckets : buckets
@@ -314,15 +285,14 @@ function renderTrend(chart, filter, buckets) {
   const canvas = element('canvas');
   canvas.setAttribute('role','img');
   canvas.setAttribute('aria-label',selected === 'total'
-    ? '各樓層用電等高線圖，橫軸為日期，縱軸為樓層。數值可在圖下方的趨勢數據表查看。'
-    : labels[selected] + '用電折線圖。數值可在圖下方的趨勢數據表查看。');
+    ? '各樓層用電曲線圖，橫軸為期間，縱軸為用電度數。'
+    : labels[selected] + '用電曲線圖，橫軸為期間，縱軸為用電度數。');
   graphic.append(canvas);
   chart.append(graphic);
-  const bands = drawTrend(canvas,keys,series,period) ?? [];
-  if (bands.length) {
+  const lines = drawTrend(canvas,keys,series,period);
+  if (lines.length) {
     const legend = element('div',undefined,'trend-legend');
-    legend.append(element('strong','用電（度）'));
-    for (const {color,label} of bands) {
+    for (const {color,label} of lines) {
       const item = element('span',undefined,'trend-key');
       const swatch = element('i');
       swatch.style.backgroundColor = color;
@@ -330,7 +300,7 @@ function renderTrend(chart, filter, buckets) {
       item.append(swatch,element('span',label));
       legend.append(item);
     }
-    chart.append(legend,element('p','圓點表示有紀錄的用電量，色帶為相鄰資料點的插值，缺少資料的區域留白。','hint'));
+    chart.append(legend);
   }
   const details = element('details',undefined,'trend-data');
   details.append(element('summary','查看趨勢數據'));
