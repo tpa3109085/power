@@ -1,5 +1,5 @@
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.mjs';
-import { floors, taipei, normalize, parseCSV, calculate, summarize } from './meter.mjs';
+import { floors, taipei, normalize, parseCSV, calculate, summarize, usageLast24Hours } from './meter.mjs?v=usage24';
 
 function periodKeys(period, filter, available) {
   if (period === 'day' && /^\d{4}-\d{2}$/.test(filter)) {
@@ -234,6 +234,7 @@ async function refresh() {
 }
 
 function render() {
+  renderLast24Hours();
   $('export-excel').disabled = !rows.length;
   const latest = rows.at(-1);
   $('coverage').textContent = latest
@@ -253,6 +254,30 @@ function render() {
   renderChart();
   renderHistory();
   updateEstimate();
+}
+
+function renderLast24Hours() {
+  const {start,end,readings} = usageLast24Hours(rows);
+  const local = time => taipei(time).slice(0,16).replace('T',' ');
+  $('usage-24-period').textContent = end === null
+    ? '目前沒有抄表紀錄'
+    : `${local(start)} 至 ${local(end)}（臺灣時間）`;
+  const results = floors.map(floor => readings[floor]);
+  const total = results.every(result => result.cents != null)
+    ? {status:results.some(result => result.status === 'estimated') ? 'estimated' : 'measured',
+       cents:results.reduce((sum,result) => sum + result.cents,0)}
+    : {status:'missing'};
+  $('usage-24-metrics').replaceChildren(...[...results,total].map((result,i) => {
+    const title = i === floors.length ? '全樓合計' : labels[floors[i]];
+    const item = element('div',undefined,'usage-24-metric');
+    const status = {measured:'實測',estimated:'估算',missing:'資料不足',drop:'讀數下降，請查核'};
+    item.append(
+      element('span',title),
+      element('strong',result.cents == null ? '—' : `${display(result.cents)} 度`),
+      element('small',status[result.status])
+    );
+    return item;
+  }));
 }
 
 function renderChart() {

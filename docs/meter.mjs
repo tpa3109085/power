@@ -78,3 +78,42 @@ export function summarize(rows, period, filter, floor) {
   }
   return {buckets, gaps, drops, total:[...buckets.values()].reduce((a,b) => a + b,0)};
 }
+
+export function usageLast24Hours(rows) {
+  const end = rows.length ? Date.parse(rows.at(-1).recorded_at) : null;
+  const start = end === null ? null : end - 24 * 3600000;
+  const readings = Object.fromEntries(floors.map(floor => [floor, {status:'missing'}]));
+  if (end === null) return {start,end,readings};
+
+  for (const floor of floors) {
+    // All floors share the same window. A floor without an end reading cannot
+    // establish its usage through the end of that window.
+    if (rows.at(-1)[floor] == null) continue;
+    let later = rows.at(-1);
+    for (let i = rows.length - 2; i >= 0; i--) {
+      const earlier = rows[i];
+      if (earlier[floor] == null) continue;
+      const from = Date.parse(earlier.recorded_at);
+      const to = Date.parse(later.recorded_at);
+      const difference = toCents(later[floor]) - toCents(earlier[floor]);
+      if (difference < 0) {
+        readings[floor] = {status:'drop'};
+        break;
+      }
+      if (from <= start) {
+        if (from === start) {
+          readings[floor] = {status:'measured',cents:toCents(rows.at(-1)[floor]) - toCents(earlier[floor])};
+        } else if (to - from <= 48 * 3600000) {
+          const partial = difference * (to - start) / (to - from);
+          readings[floor] = {
+            status:'estimated',
+            cents:Math.round(toCents(rows.at(-1)[floor]) - toCents(later[floor]) + partial)
+          };
+        }
+        break;
+      }
+      later = earlier;
+    }
+  }
+  return {start,end,readings};
+}

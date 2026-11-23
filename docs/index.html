@@ -85,8 +85,15 @@ td button{padding:5px 9px}
 @media(max-width:780px){.workspace{grid-template-columns:1fr}.entry{grid-row:1}}
 @media(max-width:490px){.shell{width:calc(100% - 24px)}.account{gap:5px;font-size:.72rem}.brand{letter-spacing:0;font-size:.88rem}.metrics{gap:6px}.metric{padding:10px 7px}.metric span,.metric small{font-size:.68rem}.entry,.trend,.history{padding:15px}main{padding-top:22px}}
 
+.usage-24{padding:16px;margin:14px 0}
+.usage-24 h2{font-size:1rem;margin:0 0 4px}
+.usage-24-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+.usage-24-metric{min-width:0;display:grid;gap:4px;padding:10px;border-radius:10px;background:#edf6f0}
+.usage-24-metric strong{font-size:1.1rem}
+.usage-24-metric small{color:#466457}
+@media(max-width:520px){.usage-24-grid{grid-template-columns:repeat(2,1fr)}}
   </style>
-  <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./app.mjs?v=usage24"></script>
 </head>
 <body>
   <header class="top"><div class="shell bar">
@@ -105,6 +112,12 @@ td button{padding:5px 9px}
     <div id="dashboard" hidden>
       <div class="heading"><div><h1>用電總覽</h1><p id="coverage">讀取抄表紀錄中</p></div><button type="button" id="export-excel" class="quiet" disabled>匯出 Excel</button></div>
       <section class="metrics" id="metrics" aria-label="各樓層最新讀數"></section>
+      <section class="card usage-24" aria-labelledby="usage-24-title">
+        <h2 id="usage-24-title">近 24 小時用電</h2>
+        <p class="hint" id="usage-24-period"></p>
+        <div id="usage-24-metrics" class="usage-24-grid"></div>
+        <p class="hint">以最新抄表時間往前推 24 小時。起點落在兩次抄表之間時，若間隔在 48 小時內，按時間比例估算。</p>
+      </section>
       <div class="workspace">
         <section class="card trend">
           <div class="section-heading"><h2>歷史用電趨勢</h2><div id="periods" class="segments" aria-label="趨勢週期">
